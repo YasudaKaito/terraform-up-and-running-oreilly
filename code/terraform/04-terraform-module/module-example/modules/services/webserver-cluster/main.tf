@@ -5,7 +5,7 @@ resource "aws_launch_template" "example" {
 
   vpc_security_group_ids = [aws_security_group.instance.id]
 
-  user_data = base64encode(templatefile("user-data.sh", {
+  user_data = base64encode(templatefile("${path.module}/user-data.sh", {
     server_port = var.server_port
     db_address  = data.terraform_remote_state.db.outputs.address
     db_port     = data.terraform_remote_state.db.outputs.port
@@ -39,13 +39,15 @@ resource "aws_autoscaling_group" "example" {
 # EC2インスタンスに対するセキュリティグループ
 resource "aws_security_group" "instance" {
   name = "${var.cluster_name}-instance"
+}
 
-  ingress {
-    from_port   = var.server_port
-    to_port     = var.server_port
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+resource "aws_security_group_rule" "allow_server_http_inbound" {
+  type              = "ingress"
+  security_group_id = aws_security_group.instance.id
+  from_port         = var.server_port
+  to_port           = var.server_port
+  protocol          = local.tcp_protocol
+  cidr_blocks       = local.all_ips
 }
 
 data "aws_vpc" "default" {
@@ -84,22 +86,26 @@ resource "aws_lb_listener" "http" {
 # ALBに対するセキュリティグループ
 resource "aws_security_group" "alb" {
   name = "${var.cluster_name}-alb"
+}
 
-  ingress {
-    from_port   = local.http_port
-    to_port     = local.http_port
-    protocol    = local.tcp_protocol
-    cidr_blocks = local.all_ips
-  }
+resource "aws_security_group_rule" "allow_http_inbound" {
+  type              = "ingress"
+  security_group_id = aws_security_group.alb.id
+  from_port         = local.http_port
+  to_port           = local.http_port
+  protocol          = local.tcp_protocol
+  cidr_blocks       = local.all_ips
+}
 
-  egress {
-    # あらゆるポートを意味する0
-    from_port = local.any_port
-    to_port   = local.any_port
-    # あらゆるプロトコルを意味する-1
-    protocol    = local.any_protocol
-    cidr_blocks = local.all_ips
-  }
+resource "aws_security_group_rule" "allow_all_outbound" {
+  type              = "egress"
+  security_group_id = aws_security_group.alb.id
+  # あらゆるポートを意味する0
+  from_port = local.any_port
+  to_port   = local.any_port
+  # あらゆるプロトコルを意味する-1
+  protocol    = local.any_protocol
+  cidr_blocks = local.all_ips
 }
 
 resource "aws_lb_target_group" "asg" {
